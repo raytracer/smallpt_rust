@@ -2,10 +2,11 @@
 //!                  http://www.kevinbeason.com/smallpt/
 
 use std::f64::consts::PI;
+use std::io;
 use std::io::Write;
 use std::ops::{Add, Sub, Mul};
-use std::thread;
 
+extern crate crossbeam;
 extern crate num_cpus;
 extern crate rand;
 
@@ -270,46 +271,46 @@ fn main() {
         let outer_chunks = 100;
         let outer_chunk_size = ceil_divide(WIDTH * HEIGHT, outer_chunks);
 
-        // NOTE Can I replace chunks_mut(_).enumerate by take? Or does that break ownership?
         for (outer_chunk_index, outer_chunk) in backbuffer.chunks_mut(outer_chunk_size).enumerate() {
             
-            println!("\rRendering ({} spp) {}%", samples*4, outer_chunk_index);
+            print!("\rRendering ({} spp) {}%\r", samples*4, outer_chunk_index);
+            io::stdout().flush().ok().expect("Could not flush stdout");
 
             let num_cpus = num_cpus::get();
             let inner_chunks = num_cpus * num_cpus;
             let inner_chunk_size = ceil_divide(outer_chunk_size, inner_chunks);
             
             // Create and launch threads. Automatically joins when going out of scope.
-            let mut threadscope = std::vec::Vec::with_capacity(inner_chunks);
+            crossbeam::scope(|scope| {
             for (inner_chunk_index, inner_chunk) in outer_chunk.chunks_mut(inner_chunk_size).enumerate() {
-                threadscope.push(thread::scoped(move || {
-                    for i in 0..inner_chunk.len() {
-                        let pixel_index = i + inner_chunk_index * inner_chunk_size + outer_chunk_index * outer_chunk_size;
-                        let x = pixel_index % WIDTH;
-                        let y = HEIGHT - pixel_index / WIDTH - 1;
-                        
-                        let mut radiance = Float3::zero();
-                        // Sample 2x2 subpixels.
-                        for sy in 0..2 {
-                            for sx in 0..2 {
-                                // Samples per subpixel.
-                                for _ in 0..samples {
-                                    let r1:f64 = 2.0 * rand::random::<f64>();
-                                    let dx = if r1 < 1.0 { r1.sqrt() - 1.0 } else { 1.0 - (2.0 - r1).sqrt() };
-                                    let r2:f64 = 2.0 * rand::random::<f64>();
-                                    let dy = if r2 < 1.0 { r2.sqrt() - 1.0 } else { 1.0 - (2.0 - r2).sqrt() };
-                                    let view_dir = cam.direction + cx * (((sx as f64 + 0.5 + dx) / 2.0 + x as f64) / WIDTH as f64 - 0.5) +
-                                        cy * (((sy as f64 + 0.5 + dy) / 2.0 + y as f64) / HEIGHT as f64 - 0.5);
-                                    let ray = Ray { origin: cam.origin + view_dir * 130.0, direction: view_dir.normalized() };
-                                    radiance = radiance + radiance_estimation(ray, &scene, 0);
+                    scope.spawn(move || {
+                        for i in 0..inner_chunk.len() {
+                            let pixel_index = i + inner_chunk_index * inner_chunk_size + outer_chunk_index * outer_chunk_size;
+                            let x = pixel_index % WIDTH;
+                            let y = HEIGHT - pixel_index / WIDTH - 1;
+
+                            let mut radiance = Float3::zero();
+                            // Sample 2x2 subpixels.
+                            for sy in 0..2 {
+                                for sx in 0..2 {
+                                    // Samples per subpixel.
+                                    for _ in 0..samples {
+                                        let r1:f64 = 2.0 * rand::random::<f64>();
+                                        let dx = if r1 < 1.0 { r1.sqrt() - 1.0 } else { 1.0 - (2.0 - r1).sqrt() };
+                                        let r2:f64 = 2.0 * rand::random::<f64>();
+                                        let dy = if r2 < 1.0 { r2.sqrt() - 1.0 } else { 1.0 - (2.0 - r2).sqrt() };
+                                        let view_dir = cam.direction + cx * (((sx as f64 + 0.5 + dx) / 2.0 + x as f64) / WIDTH as f64 - 0.5) +
+                                            cy * (((sy as f64 + 0.5 + dy) / 2.0 + y as f64) / HEIGHT as f64 - 0.5);
+                                        let ray = Ray { origin: cam.origin + view_dir * 130.0, direction: view_dir.normalized() };
+                                        radiance = radiance + radiance_estimation(ray, &scene, 0);
+                                    }
                                 }
                             }
+                            inner_chunk[i] = radiance * (0.25 / samples as f64);
                         }
-                        
-                        inner_chunk[i] = radiance * (0.25 / samples as f64);
-                    }
-                }))
+                    });
             }
+            });
         }
     }
 

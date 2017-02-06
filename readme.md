@@ -1,5 +1,7 @@
 # smallpt_rust
 
+A minor variant of [smallpt-rust](https://github.com/papaboo/smallpt_rust) using crossbeam instead of the native thread module.
+
 ![Cornell Sphere](image.png)
 
 A Rust port of [smallpt](http://www.kevinbeason.com/smallpt/). 
