@@ -6,6 +6,7 @@ use std::io;
 use std::io::Write;
 use std::ops::{Add, Sub, Mul};
 use rayon::par_iter::*;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 extern crate rand;
 extern crate rayon;
@@ -136,11 +137,6 @@ fn tonemap_255(c: f64) -> u8 {
     (clamp01(c).powf(1.0 / 2.2) * 255.0 + 0.5) as u8
 }
 
-fn ceil_divide(dividend:usize, divisor:usize) -> usize {
-    let division = dividend / divisor;
-    if division * divisor == dividend { division } else { division + 1 }
-}
-
 fn intersect_scene(ray: Ray, scene: &[Sphere]) -> Option<(&Sphere, f64)> {
     let mut res = (0, std::f64::INFINITY);
     for s in 0..scene.len() {
@@ -249,8 +245,8 @@ fn main() {
                  Sphere::new(16.5,Float3::new(73.0,16.5,78.0),       Float3::zero(),              Float3::new(0.999,0.999,0.999), BSDF::Glass),    //Glass
                  Sphere::new(600.0, Float3::new(50.0,681.33,81.6),   Float3::new(12.0,12.0,12.0), Float3::zero(),                 BSDF::Diffuse)]; //Light
 
-    const WIDTH: usize = 512;
-    const HEIGHT: usize = 512;
+    const WIDTH: usize = 1024;
+    const HEIGHT: usize = 768;
     let samples = match std::env::args().nth(1) {
                       Some(samples_str) => {
                           match samples_str.parse::<i32>() {
@@ -268,10 +264,14 @@ fn main() {
     // Fill backbuffer multithreaded
     let mut backbuffer = std::vec::from_elem(Float3::zero(), WIDTH * HEIGHT);
     let indices : Vec<usize>= (0..WIDTH*HEIGHT).collect();
+
+    let counter = AtomicUsize::new(0);
+
     backbuffer.par_iter_mut().zip(indices.par_iter()).for_each(|(p, i)| {
         let pixel_index = *i as usize;
         let x = pixel_index % WIDTH;
         let y = HEIGHT - pixel_index / WIDTH - 1;
+
 
         let mut radiance = Float3::zero();
         // Sample 2x2 subpixels.
@@ -292,6 +292,10 @@ fn main() {
         }
 
         *p = radiance * (0.25 / samples as f64);
+
+        //counter.fetch_add(1, Ordering::Relaxed);
+        //print!("\rRendering ({} spp) {}%\r", samples*4, (counter.load(Ordering::Relaxed) * 100) / (WIDTH * HEIGHT));
+        //io::stdout().flush().ok().expect("Could not flush stdout");
     });
 
     // Create PPM file content.
