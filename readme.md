@@ -1,6 +1,6 @@
 # smallpt_rust
 
-A minor variant of [smallpt-rust](https://github.com/papaboo/smallpt_rust) using crossbeam instead of the native thread module.
+A minor variant of [smallpt-rust](https://github.com/papaboo/smallpt_rust) using rayon instead of the native thread module.
 
 ![Cornell Sphere](image.png)
 

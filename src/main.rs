@@ -1,6 +1,3 @@
-//! smallpt in rust. Functionally inspired by smallpt by Kevin Beason.
-//!                  http://www.kevinbeason.com/smallpt/
-
 use std::f64::consts::PI;
 use std::io;
 use std::io::Write;
@@ -25,18 +22,18 @@ impl Float3 {
 
     fn zero() -> Float3 { Float3 { x:0.0, y:0.0, z:0.0 } }
 
-    fn dot(lhs: Float3, rhs: Float3) -> f64 {
-        lhs.x * rhs.x + lhs.y * rhs.y + lhs.z * rhs.z
+    fn dot(self, rhs: Float3) -> f64 {
+        self.x * rhs.x + self.y * rhs.y + self.z * rhs.z
     }
 
-    fn cross(lhs: Float3, rhs: Float3) -> Float3 {
-        Float3 { x: lhs.y * rhs.z - lhs.z * rhs.y,
-                 y: lhs.z * rhs.x - lhs.x * rhs.z,
-                 z: lhs.x * rhs.y - lhs.y * rhs.x }
+    fn cross(self, rhs: Float3) -> Float3 {
+        Float3 { x: self.y * rhs.z - self.z * rhs.y,
+                 y: self.z * rhs.x - self.x * rhs.z,
+                 z: self.x * rhs.y - self.y * rhs.x }
     }
 
     fn length(self) -> f64 {
-        Float3::dot(self, self).sqrt()
+        self.dot(self).sqrt()
     }
 
     fn normalized(self) -> Float3 {
@@ -109,12 +106,11 @@ impl Sphere {
     }
 }
 
-// returns distance, infinity if no hit.
 fn intersect(ray: Ray, sphere: &Sphere) -> f64{
     // Solve t^2*d.d + 2*t*(o-p).d + (o-p).(o-p)-R^2 = 0
     let op: Float3 = sphere.position - ray.origin;
-    let b: f64 = Float3::dot(op, ray.direction);
-    let det_sqrd: f64 = b * b - Float3::dot(op,op) + sphere.radius * sphere.radius;
+    let b: f64 = op.dot(ray.direction);
+    let det_sqrd: f64 = b * b - op.dot(op) + sphere.radius * sphere.radius;
     if det_sqrd < 0.0 {
         return std::f64::INFINITY;
     }
@@ -129,12 +125,8 @@ fn intersect(ray: Ray, sphere: &Sphere) -> f64{
     }
 }
 
-fn clamp01(v: f64) -> f64 { 
-    v.max(0.0).min(1.0) 
-}
-
 fn tonemap_255(c: f64) -> u8 {
-    (clamp01(c).powf(1.0 / 2.2) * 255.0 + 0.5) as u8
+    ((c.max(0.0).min(1.0)).powf(1.0 / 2.2) * 255.0 + 0.5) as u8
 }
 
 fn intersect_scene(ray: Ray, scene: &[Sphere]) -> Option<(&Sphere, f64)> {
@@ -162,7 +154,7 @@ fn radiance_estimation(ray: Ray, scene: &[Sphere], depth: i32) -> Float3 {
         Some ((sphere, t)) => {
             let position = ray.origin + ray.direction * t;
             let hard_normal = (position - sphere.position).normalized();
-            let forward_normal = if Float3::dot(hard_normal, ray.direction) < 0.0 { hard_normal } else { hard_normal * -1.0 };
+            let forward_normal = if hard_normal.dot(ray.direction) < 0.0 { hard_normal } else { hard_normal * -1.0 };
             let mut f = sphere.albedo;
             if depth > 3 {
                 if rand::random::<f64>() < luma(f) && depth < 100 {
@@ -180,26 +172,26 @@ fn radiance_estimation(ray: Ray, scene: &[Sphere], depth: i32) -> Float3 {
                     let r2 = rand::random::<f64>();
                     let r2s = r2.sqrt();
                     let wup = if forward_normal.x.abs() > 0.1 { Float3::new(0.0, 1.0, 0.0) } else { Float3::new(1.0, 0.0, 0.0) };
-                    let tangent = Float3::cross(forward_normal, wup).normalized();
-                    let bitangent = Float3::cross(forward_normal, tangent).normalized(); // Normalize due to precision (although probably not needed when using f64:))
+                    let tangent = forward_normal.cross(wup).normalized();
+                    let bitangent = forward_normal.cross(tangent).normalized(); // Normalize due to precision (although probably not needed when using f64:))
                     let next_direction = tangent * r1.cos() * r2s + bitangent * r1.sin() * r2s + forward_normal * (1.0 - r2).sqrt();
                     radiance_estimation(Ray { origin: position, direction: next_direction.normalized() }, scene, depth+1)
                 },
 
                 BSDF::Mirror => {
-                    let reflected = ray.direction - forward_normal * 2.0 * Float3::dot(forward_normal, ray.direction);
+                    let reflected = ray.direction - forward_normal * 2.0 * forward_normal.dot(ray.direction);
                     radiance_estimation(Ray { origin: position, direction: reflected }, scene, depth+1)
                 },
 
                 BSDF::Glass => {
-                    let reflected = ray.direction - forward_normal * 2.0 * Float3::dot(forward_normal, ray.direction);                    
+                    let reflected = ray.direction - forward_normal * 2.0 * forward_normal.dot(ray.direction);                    
                     let reflection_ray = Ray { origin: position, direction: reflected };
                     // Compute fresnel.
-                    let into = Float3::dot(hard_normal, forward_normal) > 0.0;
+                    let into = hard_normal.dot(forward_normal) > 0.0;
                     let nc = 1.0;
                     let nt = 1.5;
                     let nnt = if into { nc / nt } else { nt / nc };
-                    let ddn = Float3::dot(ray.direction, forward_normal);
+                    let ddn = ray.direction.dot(forward_normal);
                     let cos2t = 1.0 - nnt * nnt * (1.0 - ddn * ddn);
                     if cos2t < 0.0 { // Total internal reflection
                         radiance_estimation(reflection_ray, scene, depth+1)
@@ -209,7 +201,7 @@ fn radiance_estimation(ray: Ray, scene: &[Sphere], depth: i32) -> Float3 {
                         let a = nt-nc;
                         let b = nt + nc;
                         let base_reflectance = a * a / (b * b);
-                        let c = 1.0 - if into { -ddn } else { Float3::dot(transmitted_dir, hard_normal) };
+                        let c = 1.0 - if into { -ddn } else { transmitted_dir.dot(hard_normal) };
                         let reflectance = base_reflectance + (1.0 - base_reflectance) * c * c * c * c * c;
                         let transmittance = 1.0 - reflectance;
                         let rr_propability = 0.25 + 0.5 * reflectance;
@@ -259,8 +251,8 @@ fn main() {
 
     let cam = Ray { origin: Float3::new(50.0, 52.0, 295.6), direction: Float3::new(0.0, -0.042612, -1.0).normalized() };
     let cx = Float3 { x: WIDTH as f64 * 0.5135 / HEIGHT as f64, y: 0.0, z: 0.0 } ;
-    let cy = Float3::cross(cx, cam.direction).normalized() * 0.5135;
-    
+    let cy = cx.cross(cam.direction).normalized() * 0.5135;
+
     // Fill backbuffer multithreaded
     let mut backbuffer = std::vec::from_elem(Float3::zero(), WIDTH * HEIGHT);
     let indices : Vec<usize>= (0..WIDTH*HEIGHT).collect();
@@ -293,9 +285,12 @@ fn main() {
 
         *p = radiance * (0.25 / samples as f64);
 
-        //counter.fetch_add(1, Ordering::Relaxed);
-        //print!("\rRendering ({} spp) {}%\r", samples*4, (counter.load(Ordering::Relaxed) * 100) / (WIDTH * HEIGHT));
-        //io::stdout().flush().ok().expect("Could not flush stdout");
+        counter.fetch_add(1, Ordering::Relaxed);
+        let progress = counter.load(Ordering::Relaxed);
+        if progress % 1000 == 0 {
+            print!("\rRendering ({} spp) {}%\r", samples*4, progress * 100 / (WIDTH * HEIGHT));
+            io::stdout().flush().ok().expect("Could not flush stdout");
+        }
     });
 
     // Create PPM file content.
